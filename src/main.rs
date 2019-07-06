@@ -1,5 +1,8 @@
-mod resources;
+use std::path::{Path, PathBuf};
+use lazy_static::lazy_static;
+
+mod data;
 
 fn main() {
-	let app_id = std::env::var("TRIMET_APPID").unwrap_or_default();
+
 }
