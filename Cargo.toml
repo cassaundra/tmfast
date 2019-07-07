@@ -5,7 +5,7 @@ authors = ["Cassaundra <cass@cassaundra.io>"]
 edition = "2018"
 
 [dependencies]
-chrono = "0.4.7"
+chrono = { version = "0.4.7", features = ["serde"] }
 clap = "2.33.0"
 csv = "1.1.1"
 env_logger = "0.6.2"

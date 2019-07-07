@@ -33,6 +33,7 @@ impl From<std::io::Error> for Error {
 // and to save space we'll just be using 32-bit integers too
 mod raw {
 	use serde::Deserialize;
+	use chrono::{NaiveTime, NaiveDate};
 
 	#[derive(Default)]
 	pub struct GTFSData {
@@ -48,48 +49,50 @@ mod raw {
 
 	#[derive(Deserialize)]
 	pub struct Trip {
-		route_id: u32,
-		service_id: String,
-		trip_id: u32,
-		direction_id: u8, // enum parse would be cool here
-		shape_id: u32,
+		pub route_id: u32,
+		pub service_id: String,
+		pub trip_id: u32,
+		pub direction_id: u8, // enum parse would be cool here
+		pub shape_id: u32,
 	}
 
 	#[derive(Deserialize)]
 	pub struct Route {
-		route_id: u32,
-		route_short_name: Option<u32>,
-		route_long_name: String,
+		pub route_id: u32,
+		pub route_short_name: Option<u32>,
+		pub route_long_name: String,
 	}
 
 	#[derive(Deserialize)]
 	pub struct RouteDirection {
-		route_id: u32,
-		direction_id: u8, // see earlier comment
-		direction_name: String,
+		pub route_id: u32,
+		pub direction_id: u8, // see earlier comment
+		pub direction_name: String,
 	}
 
 	#[derive(Deserialize)]
 	pub struct StopTime {
-		trip_id: u32,
-//		arrival_time: DateTime<Utc>,
-//		departure_time: DateTime<Utc>,
-		stop_id: u32,
-		stop_sequence: u32,
+		pub trip_id: u32,
+		#[serde(with = "time_format")]
+		pub arrival_time: NaiveTime,
+		#[serde(with = "time_format")]
+		pub departure_time: NaiveTime,
+		pub stop_id: u32,
+		pub stop_sequence: u32,
 //		stop_headsign: String,
-		shape_dist_traveled: f32,
+		pub shape_dist_traveled: f32,
 	}
 
 	#[derive(Deserialize)]
 	pub struct Stop {
-		stop_id: u32,
-		stop_code: u32,
-		stop_name: String,
-		stop_desc: String,
-		stop_lat: f32,
-		stop_lon: f32,
-		direction: String,
-		position: String,
+		pub stop_id: u32,
+		pub stop_code: u32,
+		pub stop_name: String,
+		pub stop_desc: String,
+		pub stop_lat: f32,
+		pub stop_lon: f32,
+		pub direction: String,
+		pub position: String,
 	}
 
 	#[derive(Deserialize)]
@@ -100,23 +103,63 @@ mod raw {
 
 	#[derive(Deserialize)]
 	pub struct Shape {
-		shape_id: u32,
-		shape_pt_lat: f32,
-		shape_pt_lon: f32,
-		shape_pt_sequence: u32,
-		shape_dist_traveled: u32,
+		pub shape_id: u32,
+		pub shape_pt_lat: f32,
+		pub shape_pt_lon: f32,
+		pub shape_pt_sequence: u32,
+		pub shape_dist_traveled: u32,
 	}
 
 	#[derive(Deserialize)]
 	pub struct CalendarDate {
-		service_id: String,
-		date: u64, // TODO might need a custom parser
+		pub service_id: String,
+		#[serde(with = "date_format")]
+		pub date: NaiveDate,
+	}
+
+	mod time_format {
+		use serde::{Deserialize, Deserializer};
+		use chrono::NaiveTime;
+
+		const FORMAT: &'static str = "%H:%M:%S";
+
+		pub fn deserialize<'de, D>(deserializer: D) -> Result<NaiveTime, D::Error>
+			where D: Deserializer<'de>,
+		{
+			let s = String::deserialize(deserializer)?;
+			NaiveTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
+		}
+	}
+
+	mod date_format {
+		use serde::{Deserialize, Deserializer};
+		use chrono::NaiveDate;
+
+		const FORMAT: &'static str = "%y%m%d";
+
+		pub fn deserialize<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
+			where D: Deserializer<'de>,
+		{
+			let s = String::deserialize(deserializer)?;
+			NaiveDate::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
+		}
+	}
+}
+
+mod structured {
+	use serde::{Serialize, Deserialize};
+
+	#[derive(Serialize, Deserialize)]
+	pub struct TransitData {
+        date: Naive
 	}
 }
 
 pub fn load_gtfs_data(data_dir: &Path) -> std::result::Result<raw::GTFSData, Error> {
 	let archive_path = data_dir.join("gtfs.zip");
 	let dir_path = data_dir.join("gtfs");
+
+	// TODO check if downloaded
 
 	info!("Downloading GTFS archive from TriMet...");
 	{
@@ -143,39 +186,25 @@ pub fn load_gtfs_data(data_dir: &Path) -> std::result::Result<raw::GTFSData, Err
 	}
 
 	info!("Parsing files...");
-	/*
-	trips: &'a [Trip<'a>],
-	routes: &'a [Route<'a>],
-	route_directions: &'a [RouteDirection<'a>],
-	stop_times: &'a [StopTime],
-	stops: &'a [Stop<'a>],
-	transfers: &'a [Transfer],
-	shapes: &'a [Shape],
-	calendar_dates: &'a [CalendarDate<'a>],
-	*/
-
-//	gtfs_data.trips = parse_gtfs(&dir_path.join("trips.txt")).as_ref();
-//	gtfs_data.trips = parse_gtfs(&dir_path.join("trips.txt")).as_ref();
-
 	let gtfs_data = raw::GTFSData {
-		trips: parse_gtfs(&dir_path,"trips.txt"),
-		routes: parse_gtfs(&dir_path, "routes.txt"),
-		route_directions: parse_gtfs(&dir_path, "route_directions.txt"),
-		stop_times: parse_gtfs(&dir_path, "stop_times.txt"),
-		stops: parse_gtfs(&dir_path, "stops.txt"),
-		transfers: parse_gtfs(&dir_path, "transfers.txt"),
-		shapes: parse_gtfs(&dir_path, "shapes.txt"),
-		calendar_dates: parse_gtfs(&dir_path, "calendar_dates.txt"),
+		trips: parse_gtfs(&dir_path.join("trips.txt")),
+		routes: parse_gtfs(&dir_path.join("routes.txt")),
+		route_directions: parse_gtfs(&dir_path.join("route_directions.txt")),
+		stop_times: parse_gtfs(&dir_path.join("stop_times.txt")),
+		stops: parse_gtfs(&dir_path.join("stops.txt")),
+		transfers: parse_gtfs(&dir_path.join("transfers.txt")),
+		shapes: parse_gtfs(&dir_path.join("shapes.txt")),
+		calendar_dates: parse_gtfs(&dir_path.join("calendar_dates.txt")),
 	};
 
 	Ok(gtfs_data)
 }
 
-fn parse_gtfs<T>(path: &Path, filename: &str) -> Vec<T>
+fn parse_gtfs<T>(path: &Path) -> Vec<T>
 	where T: serde::de::DeserializeOwned {
-	info!("Parsing {}", filename);
+	info!("Parsing {}", path.display());
 
-	let mut reader = csv::Reader::from_reader(File::open(path.join(filename)).unwrap());
+	let mut reader = csv::Reader::from_reader(File::open(path).unwrap());
 
 	let mut values: Vec<T> = Vec::new();
 

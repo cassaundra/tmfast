@@ -2,5 +2,5 @@ mod data;
 
 fn main() {
 	env_logger::init();
-	let data = data::load_gtfs_data(std::env::temp_dir().as_path());
+	let data = data::load_gtfs_data(std::env::temp_dir().as_path()).unwrap_or_default();
 }
