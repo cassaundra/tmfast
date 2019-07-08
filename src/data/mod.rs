@@ -6,8 +6,10 @@ use log::*;
 
 use lazy_static::lazy_static;
 use serde::Deserialize;
+use futures::executor::ThreadPool;
+use futures::future::Future;
+use gtfs_structures::Gtfs;
 
-mod raw;
 mod structured;
 
 lazy_static! {
@@ -32,66 +34,43 @@ impl From<std::io::Error> for Error {
 	}
 }
 
-pub fn load_transit_data(data_dir: &Path) -> std::result::Result<structured::TransitData, Error> {
-	let archive_path = data_dir.join("gtfs.zip");
-	let dir_path = data_dir.join("gtfs");
+pub fn load_transit_data(root_dir: &Path, use_cached: bool) -> std::result::Result<Gtfs, Error> {
+	let archive_path = root_dir.join("gtfs.zip");
 
-	// TODO check if downloaded
+	// TODO check if there is a cached version
 
-	info!("Downloading GTFS archive from TriMet...");
-	{
-		let mut dest = File::create(&archive_path)?;
-		let url = "https://developer.trimet.org/schedule/gtfs.zip";
-		let mut response = reqwest::get(url)?;
+	if !use_cached {
+		info!("Downloading GTFS archive from TriMet...");
+		{
+			let mut dest = File::create(&archive_path)?;
+			let url = "https://developer.trimet.org/schedule/gtfs.zip";
+			let mut response = reqwest::get(url)?;
 
-		std::io::copy(&mut response, &mut dest)?;
-	}
-
-	info!("Extracting files from GTFS archive...");
-	{
-		let archive = File::open(&archive_path)?;
-		let mut archive = zip::ZipArchive::new(archive).unwrap();
-
-		for i in 0..archive.len() {
-			let mut file = archive.by_index(i).unwrap();
-
-			debug!("Extracting {}", file.name());
-
-			let mut outfile = File::create(dir_path.join(file.sanitized_name()))?;
-			std::io::copy(&mut file, &mut outfile)?;
+			std::io::copy(&mut response, &mut dest)?;
 		}
+
+//		info!("Extracting files from GTFS archive...");
+//		{
+//			let archive = File::open(&archive_path)?;
+//			let mut archive = zip::ZipArchive::new(archive).unwrap();
+//
+//			for i in 0..archive.len() {
+//				let mut file = archive.by_index(i).unwrap();
+//
+//				debug!("Extracting {}", file.name());
+//
+//				let mut outfile = File::create(dir_path.join(file.sanitized_name()))?;
+//				std::io::copy(&mut file, &mut outfile)?;
+//			}
+//		}
 	}
+
+//	let trips = futures::executor::block_on(parse_gtfs_async(&dir_path.join("trips.txt")));
 
 	info!("Parsing files...");
-	let gtfs_data = raw::GTFSData {
-		trips: parse_gtfs(&dir_path.join("trips.txt")),
-		routes: parse_gtfs(&dir_path.join("routes.txt")),
-		route_directions: parse_gtfs(&dir_path.join("route_directions.txt")),
-		stop_times: parse_gtfs(&dir_path.join("stop_times.txt")),
-		stops: parse_gtfs(&dir_path.join("stops.txt")),
-		transfers: parse_gtfs(&dir_path.join("transfers.txt")),
-		shapes: parse_gtfs(&dir_path.join("shapes.txt")),
-		calendar_dates: parse_gtfs(&dir_path.join("calendar_dates.txt")),
-	};
+	let gtfs = Gtfs::from_zip(archive_path.to_str().unwrap()).expect("Could not read GTFS");
 
-	Ok(gtfs_data)
-}
-
-fn parse_gtfs<T>(path: &Path) -> Vec<T>
-	where T: serde::de::DeserializeOwned {
-	info!("Parsing {}", path.display());
-
-	let mut reader = csv::Reader::from_reader(File::open(path).unwrap());
-
-	let mut values: Vec<T> = Vec::new();
-
-	for entry in reader.deserialize() {
-		if let Ok(value) = entry {
-			values.push(value);
-		}
-	}
-
-	values
+	Ok(gtfs)
 }
 
 pub fn load_vehicle_positions(tmp_dir: &Path, since: Instant) -> std::result::Result<DirEntry, Error> {
